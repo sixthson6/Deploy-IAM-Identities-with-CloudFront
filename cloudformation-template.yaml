@@ -1,0 +1,88 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template to create IAM users, groups, and a Secrets
+  Manager secret for temporary passwords. This template sets a default temporary
+  password for two users, who will be forced to change it on their first login.
+  It also creates IAM groups with specific permissions for S3 and EC2.
+
+Parameters:
+  TemporaryPassword:
+    Type: String
+    Description: The temporary password for the IAM users. It must be at least 8
+      characters long and contain at least one uppercase letter, one lowercase
+      letter, one number, and one special character.
+    Default: P@$$w0rd123
+    NoEcho: true
+    AllowedPattern: (?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^a-zA-Z0-9]).{8,}
+    ConstraintDescription: Password must be at least 8 characters long and contain
+      at least one uppercase letter, one lowercase letter, one number, and one
+      special character.
+
+Resources:
+  # Secrets Manager Secret for the temporary password
+  TemporaryPasswordSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Description: Stores the temporary password for IAM users.
+      SecretString: !Ref TemporaryPassword
+
+  # IAM Group for S3 users with read-only access
+  S3UserGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: S3ReadAccessGroup
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+
+  # IAM Group for EC2 users with read-only access
+  EC2UserGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: EC2ReadAccessGroup
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEC2ReadOnlyAccess
+
+  # IAM User for EC2 access
+  EC2User:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: ec2-user
+      Groups:
+        - !Ref EC2UserGroup
+      LoginProfile:
+        Password: !Ref TemporaryPassword
+        PasswordResetRequired: true
+
+  # IAM User for S3 access
+  S3User:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: s3-user
+      Groups:
+        - !Ref S3UserGroup
+      LoginProfile:
+        Password: !Ref TemporaryPassword
+        PasswordResetRequired: true
+
+  # IAM Policy to allow reading the secret from Secrets Manager
+  ReadSecretPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: ReadTemporaryPasswordSecretPolicy
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Action:
+              - secretsmanager:GetSecretValue
+            Resource: !Ref TemporaryPasswordSecret
+      Users:
+        - !Ref EC2User
+        - !Ref S3User
+
+Outputs:
+  S3User:
+    Description: S3 IAM User ARN
+    Value: !GetAtt S3User.Arn
+  EC2User:
+    Description: EC2 IAM User ARN
+    Value: !GetAtt EC2User.Arn
